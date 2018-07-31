@@ -4,6 +4,7 @@
 from queue import Queue
 from threading import Thread
 from time import time, sleep
+from tqdm import tqdm
 import requests
 # To disable the warning "InsecureRequestWarning: Unverified HTTPS request is being made"
 # in requests using urllib3,  it's needed to import the specific instance of the module
@@ -29,21 +30,24 @@ num_worker_threads = 8
 
 
 class MigrationWorker(Thread):
-    def __init__(self, q):
+    def __init__(self, q, pbar):
         Thread.__init__(self)
         self.q = q
+        self.pbar = pbar
 
     def run(self):
         while True:
             # Get the work from the queue and expand the tuple
             ip = self.q.get()
+            self.pbar.set_description("Processing %s" % ip)
             url = phone_url.format(ip)
             execute_items(url, key_array)
             sleep(2)
             execute_items(url, unlock)
             sleep(0.2)
             execute_items(url, erase)
-            print(ip)
+            # print(ip)
+            self.pbar.update(1)
             self.q.task_done()
 
 
@@ -65,14 +69,15 @@ def xml_push(url, payload):
     try:
         r = requests.post(url, headers=headers, data=payload)
         print(r.text)
-    except requests.exceptions.HTTPError as eHttp:
-        print("Http Error:", eHttp)
-    except requests.exceptions.ConnectionError as eConnection:
-        print("Error Connecting:", eConnection)
-    except requests.exceptions.Timeout as eTimeout:
-        print("Timeout Error:", eTimeout)
+    # except requests.exceptions.HTTPError as eHttp:
+    #     print("Http Error:", eHttp)
+    # except requests.exceptions.ConnectionError as eConnection:
+    #     print("Error Connecting:", eConnection)
+    # except requests.exceptions.Timeout as eTimeout:
+    #     print("Timeout Error:", eTimeout)
     except requests.exceptions.RequestException as eRequest:
-        print("OOps: Something Else", eRequest)
+        # print("OOps: Something Else", eRequest)
+        return
     return
 
 
@@ -87,17 +92,20 @@ def main():
     ips = get_ips(filename)
     # Create a queue to communicate with the worker threads
     q = Queue()
+    pbar = tqdm(ips)
     # Create 8 worker threads
     for x in range(num_worker_threads):
-        worker = MigrationWorker(q)
+        worker = MigrationWorker(q, pbar)
         # Setting daemon to True will let the main thread exit even though the workers are blocking
         worker.daemon = True
         worker.start()
     # Put the tasks into the queue as a tuple
     for ip in ips:
         q.put(ip)
+
     # Causes the main thread to wait for the queue to finish processing all the tasks
     q.join()
+    pbar.close()
     print('Took {}'.format(time() - ts))
 
 
